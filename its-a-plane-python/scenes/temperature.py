@@ -24,13 +24,10 @@ class TemperatureScene(object):
         self._redraw_temp = True
 
     def colour_gradient(self, colour_A, colour_B, ratio):
-        return graphics.Color(
-            colour_A.red + ((colour_B.red - colour_A.red) * ratio),
-            colour_A.green + ((colour_B.green - colour_A.green) * ratio),
-            colour_A.blue + ((colour_B.blue - colour_A.blue) * ratio),
-            )
-
-        return graphics.Color(int(r), int(g), int(b))
+        r = int(colour_A.red + ((colour_B.red - colour_A.red) * ratio))
+        g = int(colour_A.green + ((colour_B.green - colour_A.green) * ratio))
+        b = int(colour_A.blue + ((colour_B.blue - colour_A.blue) * ratio))
+        return graphics.Color(r, g, b)
 
     @Animator.KeyFrame.add(frames.PER_SECOND * 1)
     def temperature(self, count):

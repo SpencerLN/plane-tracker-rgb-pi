@@ -1,4 +1,5 @@
 import os
+import logging
 import json
 import math
 import socket
@@ -240,6 +241,7 @@ def log_farthest_flight(entry: dict):
 
 class Overhead:
     def __init__(self):
+        logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s: %(message)s')
         self._api = FlightRadar24API()
         self._lock = Lock()
         self._data = []
@@ -248,6 +250,7 @@ class Overhead:
 
     # Public
     def grab_data(self):
+        logging.info("Starting new thread to grab flight data.")
         Thread(target=self._grab).start()
 
     # Safe nested dict access
@@ -267,21 +270,26 @@ class Overhead:
         data = []
 
         try:
-            bounds = self._api.get_bounds(ZONE_DEFAULT)
+            logging.info("Fetching bounds and flights from FlightRadar24API.")
+            bounds = self._api.get_bounds_by_point(LOCATION_HOME[0], LOCATION_HOME[1], 10000)
             flights = self._api.get_flights(bounds=bounds)
+            logging.info(f"Found {len(flights)} flights in bounds.")
 
             # Altitude filter
             flights = [f for f in flights if MIN_ALTITUDE < f.altitude < MAX_ALTITUDE]
+            logging.info(f"Filtered to {len(flights)} flights by altitude.")
 
             # Sort & slice
             flights.sort(key=lambda f: distance_from_flight_to_home(f))
             flights = flights[:MAX_FLIGHT_LOOKUP]
+            logging.info(f"Processing up to {len(flights)} flights for details.")
 
             for f in flights:
                 retries = RETRIES
                 while retries:
                     sleep(RATE_LIMIT_DELAY)
                     try:
+                        logging.info(f"Fetching details for flight: {f.callsign}")
                         d = self._api.get_flight_details(f)
 
                         # Extract fields
@@ -346,9 +354,11 @@ class Overhead:
                         log_flight_data(entry)
                         log_farthest_flight(entry)
 
+                        logging.info(f"Flight details processed for: {callsign}")
                         break
 
                     except Exception as e:
+                        logging.info(f"Error fetching flight details for {f.callsign}: {e}. Retries left: {retries-1}")
                         retries -= 1
 
             with self._lock:
@@ -357,6 +367,7 @@ class Overhead:
                 self._data = data
 
         except (ConnectionError, NewConnectionError, MaxRetryError):
+            logging.info("Connection error while fetching flight data.")
             with self._lock:
                 self._new_data = False
                 self._processing = False

@@ -4,6 +4,7 @@ import pytz
 import time
 import json 
 import logging
+import os
 
 # Attempt to load config data
 try:
@@ -25,7 +26,23 @@ from config import TEMPERATURE_LOCATION
 # Weather API
 TOMORROW_API_URL = "https://api.tomorrow.io/v4/"
 
+# Cache settings
+CACHE_FILE = os.path.join(os.path.dirname(__file__), "temperature_cache.json")
+FORECAST_CACHE_FILE = os.path.join(os.path.dirname(__file__), "forecast_cache.json")
+CACHE_DURATION = 1200  # 20 minutes in seconds
+
 def grab_temperature_and_humidity(delay=2, max_retries=None):
+    # Check cache first
+    if os.path.exists(CACHE_FILE):
+        try:
+            with open(CACHE_FILE, 'r') as f:
+                cache_data = json.load(f)
+            cached_time = datetime.fromisoformat(cache_data['timestamp'])
+            if datetime.utcnow() - cached_time < timedelta(seconds=CACHE_DURATION):
+                return cache_data['temperature'], cache_data['humidity']
+        except (json.JSONDecodeError, KeyError, ValueError):
+            pass  # Ignore invalid cache
+
     current_temp, humidity = None, None
     retries = 0
 
@@ -70,9 +87,33 @@ def grab_temperature_and_humidity(delay=2, max_retries=None):
             logging.info(f"Retrying in {delay} seconds...")
             time.sleep(delay)
 
+    # Save to cache if data was successfully fetched
+    if current_temp is not None and humidity is not None:
+        cache_data = {
+            'timestamp': datetime.utcnow().isoformat(),
+            'temperature': current_temp,
+            'humidity': humidity
+        }
+        try:
+            with open(CACHE_FILE, 'w') as f:
+                json.dump(cache_data, f)
+        except Exception:
+            pass  # Ignore if can't write
+
     return current_temp, humidity
 
 def grab_forecast(delay=2):
+    # Check cache first
+    if os.path.exists(FORECAST_CACHE_FILE):
+        try:
+            with open(FORECAST_CACHE_FILE, 'r') as f:
+                cache_data = json.load(f)
+            cached_time = datetime.fromisoformat(cache_data['timestamp'])
+            if datetime.utcnow() - cached_time < timedelta(seconds=CACHE_DURATION):
+                return cache_data['forecast']
+        except (json.JSONDecodeError, KeyError, ValueError):
+            pass  # Ignore invalid cache
+
     while True:
         try:
             current_time = datetime.utcnow()
@@ -117,6 +158,17 @@ def grab_forecast(delay=2):
 
             if not forecast:
                 raise KeyError("Forecast intervals not found in timelines.")
+
+            # Save to cache
+            cache_data = {
+                'timestamp': datetime.utcnow().isoformat(),
+                'forecast': forecast
+            }
+            try:
+                with open(FORECAST_CACHE_FILE, 'w') as f:
+                    json.dump(cache_data, f)
+            except Exception:
+                pass  # Ignore if can't write
 
             return forecast
 
