@@ -1,4 +1,5 @@
 from PIL import Image
+from PIL.Image import Resampling
 
 from utilities.animator import Animator
 from setup import colours
@@ -29,11 +30,11 @@ class FlightLogoScene:
 
         # Open the file
         try:
-            image = Image.open(f"logos/{icao}.png")
+            image = Image.open(f"logo/{icao}.png")
         except FileNotFoundError:
-            image = Image.open(f"logos/{DEFAULT_IMAGE}.png")
+            image = Image.open(f"logo/{DEFAULT_IMAGE}.png")
 
 
         # Make image fit our screen.
-        image.thumbnail((LOGO_SIZE, LOGO_SIZE), Image.ANTIALIAS)
+        image.thumbnail((LOGO_SIZE, LOGO_SIZE), Resampling.LANCZOS)
         self.matrix.SetImage(image.convert('RGB'))

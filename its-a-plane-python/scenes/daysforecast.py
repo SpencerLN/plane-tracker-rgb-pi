@@ -110,7 +110,7 @@ class DaysForecastScene(object):
 
                     # Draw the icon
                     image = Image.open(f"icons/{icon}.png")
-                    image.thumbnail((ICON_SIZE, ICON_SIZE), Image.ANTIALIAS)
+                    image.thumbnail((ICON_SIZE, ICON_SIZE), Image.Resampling.LANCZOS)
                     self.matrix.SetImage(image.convert('RGB'), icon_x, ICON_POSITION)
                     
                     # Clear previous temperature values

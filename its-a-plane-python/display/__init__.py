@@ -1,4 +1,5 @@
 import sys
+import logging
 from datetime import datetime
 from setup import frames
 from utilities.animator import Animator
@@ -82,6 +83,7 @@ class Display(
 ):
     def __init__(self):
         # Setup Display
+        logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s: %(message)s')
         options = RGBMatrixOptions()
         options.hardware_mapping = "adafruit-hat-pwm" if HAT_PWM_ENABLED else "adafruit-hat"
         options.rows = 32
@@ -139,6 +141,7 @@ class Display(
 
             # this marks self.overhead.data as no longer new
             new_data = self.overhead.data
+            logging.info(f"New flight data detected. Data length: {len(new_data)}")
 
             # See if this matches the data already on the screen
             # This test only checks if it's 2 lists with the same
@@ -146,6 +149,7 @@ class Display(
             data_is_different = not flight_updated(self._data, new_data)
 
             if data_is_different:
+                logging.info("Flight data has changed. Updating internal data store.")
                 self._data_index = 0
                 self._data_all_looped = False
                 self._data = new_data
@@ -157,6 +161,7 @@ class Display(
             reset_required = there_is_data and data_is_different
 
             if reset_required:
+                logging.info("Reset required: new flight data will be rendered.")
                 self.reset_scene()
 
     @Animator.KeyFrame.add(1)
@@ -182,6 +187,7 @@ class Display(
         if not (self.overhead.processing and self.overhead.new_data) and (
             self._data_all_looped or len(self._data) <= 1
         ):
+            logging.info("Grabbing new flight data from overhead.")
             self.overhead.grab_data()
 
     def run(self):
