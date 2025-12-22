@@ -1,13 +1,14 @@
-from datetime import datetime
+"""Clock scene module for displaying time on the RGB matrix."""
+
+from datetime import datetime, date
+from typing import Optional, Tuple
+
+from rgbmatrix import graphics
+
+from config import CLOCK_FORMAT
 from utilities.temperature import grab_forecast
 from utilities.animator import Animator
 from setup import colours, fonts, frames
-from rgbmatrix import graphics
-import logging
-
-
-# Configure logging
-#logging.basicConfig(filename='myapp.log', level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 # Setup
 CLOCK_FONT = fonts.large_bold
@@ -15,23 +16,37 @@ CLOCK_POSITION = (0, 11)
 DAY_COLOUR = colours.LIGHT_ORANGE
 NIGHT_COLOUR = colours.LIGHT_BLUE
 
-from config import CLOCK_FORMAT
 
 class ClockScene(object):
-    def __init__(self):
-        super().__init__()
-        self._last_time = None
-        self.today_sunrise = None
-        self.today_sunset = None
-        self.last_fetch_date = None  # Store the date of the last forecast fetch
+    """Scene that displays the current time with day/night color coding.
+    
+    The clock color changes based on sunrise and sunset times fetched from
+    the weather forecast API.
+    """
 
-    def calculate_sunrise_sunset(self):
+    def __init__(self) -> None:
+        """Initialize the ClockScene with default values."""
+        super().__init__()
+        self._last_time: Optional[str] = None
+        self.today_sunrise: Optional[datetime] = None
+        self.today_sunset: Optional[datetime] = None
+        self.last_fetch_date: Optional[date] = None
+
+    def calculate_sunrise_sunset(self) -> Tuple[Optional[datetime], Optional[datetime]]:
+        """Calculate and cache today's sunrise and sunset times.
+        
+        Fetches forecast data from the weather API and extracts sunrise/sunset
+        times for the current day. Results are cached and only refreshed when
+        the date changes.
+        
+        Returns:
+            Tuple containing (sunrise_time, sunset_time) as datetime objects,
+            or (None, None) if data is not available.
+        """
         now = datetime.now()
-        #print("Checking the sun...")
         
         # Check if it's a new day or if there is no cached data
-        if (self.last_fetch_date != now.date()):
-            #print("Fetching forecast data...")
+        if self.last_fetch_date != now.date():
             forecast = grab_forecast()
             for day in forecast:
                 forecast_date = day['startTime'][:10]
@@ -43,17 +58,23 @@ class ClockScene(object):
                     # Cache the sunrise and sunset times
                     self.today_sunrise = utc_sunrise
                     self.today_sunset = utc_sunset
-                    self.last_fetch_date = now.date()  # Update the last fetch date
-                    #logging.info(f"Fetched forecast data for {forecast_date}, sunrise: {utc_sunrise}, sunset: {utc_sunset}")
-                    #print(f"Fetched forecast data for {forecast_date}, sunrise: {utc_sunrise}, sunset: {utc_sunset}")
+                    self.last_fetch_date = now.date()
 
         return self.today_sunrise, self.today_sunset
 
     @Animator.KeyFrame.add(frames.PER_SECOND * 1)
-    def clock(self, count):
+    def clock(self, count: int) -> None:
+        """Update and display the clock on the matrix.
+        
+        This method is called once per second to update the time display.
+        The clock color changes based on whether it's day or night.
+        
+        Args:
+            count: Frame counter from the animator.
+        """
         if len(self._data):
             # Ensure redraw when there's new data
-            self._last_time = None 
+            self._last_time = None
         else:
             # If there's no data to display, then draw a clock
             now = datetime.now()

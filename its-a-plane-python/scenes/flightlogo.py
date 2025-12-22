@@ -1,3 +1,6 @@
+import os
+from pathlib import Path
+
 from PIL import Image
 from PIL.Image import Resampling
 
@@ -6,6 +9,7 @@ from setup import colours
 
 LOGO_SIZE = 16
 DEFAULT_IMAGE = "default"
+LOGO_DIR = Path(__file__).parent.parent.parent / "logo"
 
 class FlightLogoScene:
     @Animator.KeyFrame.add(0)
@@ -30,9 +34,13 @@ class FlightLogoScene:
 
         # Open the file
         try:
-            image = Image.open(f"logo/{icao}.png")
+            image = Image.open(LOGO_DIR / f"{icao}.png")
         except FileNotFoundError:
-            image = Image.open(f"logo/{DEFAULT_IMAGE}.png")
+            try:
+                image = Image.open(LOGO_DIR / f"{DEFAULT_IMAGE}.png")
+            except FileNotFoundError:
+                # If even the default image is missing, skip displaying the logo
+                return
 
 
         # Make image fit our screen.

@@ -1,13 +1,14 @@
+"""Date scene module for displaying the date with moon phase effects."""
+
 from datetime import datetime
+from typing import Optional, Tuple, Any
+
+from rgbmatrix import graphics
+
+from config import NIGHT_START, NIGHT_END
 from utilities.temperature import grab_forecast
 from utilities.animator import Animator
 from setup import colours, fonts, frames
-from rgbmatrix import graphics
-import logging
-from config import NIGHT_START, NIGHT_END
-
-# Configure logging
-#logging.basicConfig(filename='myapp.log', level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 # Setup
 DATE_FONT = fonts.extrasmall
@@ -17,36 +18,54 @@ DATE_POSITION = (40, 11)
 NIGHT_START_TIME = datetime.strptime(NIGHT_START, "%H:%M")
 NIGHT_END_TIME = datetime.strptime(NIGHT_END, "%H:%M")
 
+
 class DateScene(object):
-    def __init__(self):
+    """Scene that displays the current date with moon phase gradient colors.
+    
+    The date text is rendered with a gradient that changes based on the
+    current moon phase, providing a visual indication of the lunar cycle.
+    """
+
+    def __init__(self) -> None:
+        """Initialize the DateScene with default values."""
         super().__init__()
-        self._last_date = None
-        self.today_moonphase = None
-        self.last_fetched_moonphase = None  # Store the date of the last forecast 
+        self._last_date: Optional[str] = None
+        self.today_moonphase: Optional[int] = None
+        self.last_fetched_moonphase: Optional[int] = None 
 
 
-    def moonphase(self):
-            now = datetime.now()
-            
-            #print("last fetch is", self.last_fetched_moonphase, "; now day is", now.day)
-            if self.last_fetched_moonphase != now.day:
-                #print("Fetching forecast data...")
-                forecast = grab_forecast()
-                for day in forecast:
-                    forecast_date = day['startTime'][:10]
-                    if forecast_date == now.strftime('%Y-%m-%d'):
-                       utc_moonphase = int(day["values"]["moonPhase"])
-                       self.today_moonphase = utc_moonphase  # Update moon phase
-                       self.last_fetched_moonphase = now.day  # Update the last fetch date
-                       #logging.info(f"Fetched forecast data for {forecast_date}, moonphase: {utc_moonphase}")
-                       #print(f"Fetched forecast data for {forecast_date}, moonphase: {utc_moonphase}")
-                       break 
+    def moonphase(self) -> Optional[int]:
+        """Get the current moon phase, fetching from API if needed.
+        
+        Moon phase values are cached daily and only refreshed when the
+        day changes.
+        
+        Returns:
+            Integer representing moon phase (0-7), or None if not available.
+        """
+        now = datetime.now()
+        
+        if self.last_fetched_moonphase != now.day:
+            forecast = grab_forecast()
+            for day in forecast:
+                forecast_date = day['startTime'][:10]
+                if forecast_date == now.strftime('%Y-%m-%d'):
+                    utc_moonphase = int(day["values"]["moonPhase"])
+                    self.today_moonphase = utc_moonphase
+                    self.last_fetched_moonphase = now.day
+                    break
 
-          #Return the cached moon phase value
-            return self.today_moonphase
+        return self.today_moonphase
 
-    def map_moon_phase_to_color(self, moonphase):
-        # Define the two colors for the specific moon phases
+    def map_moon_phase_to_color(self, moonphase: int) -> Tuple[Any, Any]:
+        """Map a moon phase value to gradient colors.
+        
+        Args:
+            moonphase: Integer value representing the moon phase (0-7).
+        
+        Returns:
+            Tuple of (start_color, end_color) for the gradient.
+        """
         colors = [
             [colours.DARK_PURPLE, colours.DARK_PURPLE],  # Moon phase 0
             [colours.DARK_PURPLE, colours.DARK_MID_PURPLE],  # Moon phase 1
@@ -55,8 +74,7 @@ class DateScene(object):
             [colours.GREY, colours.GREY],  # Moon phase 4 (no gradient, same color)
             [colours.WHITE, colours.DARK_MID_PURPLE],  # Moon phase 5
             [colours.WHITE, colours.DARK_PURPLE],  # Moon phase 6
-            [colours.DARK_MID_PURPLE, colours.DARK_PURPLE]  # Moon phase 7 (middle_purple to PINK_DARK gradient)
-            # Define colors for the remaining phases as needed
+            [colours.DARK_MID_PURPLE, colours.DARK_PURPLE]  # Moon phase 7
         ]
 
         # Ensure moonphase is within the valid range
@@ -65,9 +83,18 @@ class DateScene(object):
         # Get the corresponding colors for the moon phase
         gradient_start_color, gradient_end_color = colors[moonphase]
 
-        return gradient_start_color, gradient_end_color  # Return both colors
+        return gradient_start_color, gradient_end_color
 
-    def draw_gradient_text(self, text, x, y, start_color, end_color):
+    def draw_gradient_text(self, text: str, x: int, y: int, start_color: Any, end_color: Any) -> None:
+        """Draw text with a horizontal color gradient.
+        
+        Args:
+            text: The text string to draw.
+            x: X coordinate for the start of the text.
+            y: Y coordinate for the text baseline.
+            start_color: Color at the beginning of the text.
+            end_color: Color at the end of the text.
+        """
         text_length = len(text)
         char_width = 4  # Width of each character
         for i, char in enumerate(text):
@@ -87,13 +114,22 @@ class DateScene(object):
             )
 
     @Animator.KeyFrame.add(frames.PER_SECOND * 1)
-    def date(self, count):
-        #redraws the screen at night start and end so it'll adjust the brightness
+    def date(self, count: int) -> None:
+        """Update and display the date on the matrix.
+        
+        This method is called once per second to update the date display.
+        The date is rendered with a gradient based on the current moon phase.
+        Triggers a redraw at night mode transitions for brightness adjustment.
+        
+        Args:
+            count: Frame counter from the animator.
+        """
+        # Redraws the screen at night start and end so it'll adjust the brightness
         now = datetime.now().replace(microsecond=0).time()
         if now == NIGHT_START_TIME.time() or now == NIGHT_END_TIME.time():
             self._last_date = None
             return
-    
+
         if len(self._data):
             # Ensure redraw when there's new data
             self._last_date = None

@@ -1,6 +1,20 @@
+"""Display module for the plane tracker RGB LED matrix.
+
+This module contains the Display class which serves as the main controller
+for rendering flight information on an RGB LED matrix display. It combines
+multiple scene classes (Clock, Temperature, FlightDetails, etc.) with an
+Animator base class to create an animated display that shows real-time
+overhead flight data.
+
+The Display class uses a KeyFrame-based animation system where different
+methods are registered to execute at specific frame intervals, allowing
+for smooth animations and periodic data updates.
+"""
+
 import sys
 import logging
 from datetime import datetime
+from typing import List, Dict, Any, Tuple, Set
 from setup import frames
 from utilities.animator import Animator
 from utilities.overhead import Overhead
@@ -19,10 +33,24 @@ from rgbmatrix import graphics
 from rgbmatrix import RGBMatrix, RGBMatrixOptions
 
 
-def flight_updated(flights_a, flights_b):
+def flight_updated(flights_a: List[Dict[str, Any]], flights_b: List[Dict[str, Any]]) -> bool:
+    """Check if two flight lists contain the same flights.
+    
+    Compares two lists of flight dictionaries by their callsigns and directions.
+    Order does not matter - only the presence of the same (callsign, direction)
+    pairs in both lists.
+    
+    Args:
+        flights_a: First list of flight dictionaries.
+        flights_b: Second list of flight dictionaries.
+        
+    Returns:
+        True if both lists contain the same set of (callsign, direction) pairs,
+        False otherwise.
+    """
     get_callsigns = lambda flights: [(f["callsign"], f["direction"]) for f in flights]
-    updatable_a = set(get_callsigns(flights_a))
-    updatable_b = set(get_callsigns(flights_b))
+    updatable_a: Set[Tuple[str, str]] = set(get_callsigns(flights_a))
+    updatable_b: Set[Tuple[str, str]] = set(get_callsigns(flights_b))
 
     return updatable_a == updatable_b
 
@@ -49,24 +77,32 @@ except (ModuleNotFoundError, NameError):
     HAT_PWM_ENABLED = True
     NIGHT_BRIGHTNESS = False
 
-def adjust_brightness(matrix):
+def adjust_brightness(matrix: RGBMatrix) -> None:
+    """Adjust matrix brightness based on time of day.
+    
+    Automatically dims the display during night hours to reduce light
+    pollution and power consumption. The night period is defined by
+    NIGHT_START and NIGHT_END configuration values.
+    
+    Args:
+        matrix: The RGBMatrix instance to adjust brightness for.
+    """
     if NIGHT_BRIGHTNESS is False:
         return  # Do nothing if NIGHT_BRIGHTNESS is False
         
-    # Redraw screen every frame
-    now = datetime.now().time().replace(second=0, microsecond=0)  # Extract only hours and minutes
+    # Get current time (hours and minutes only for comparison)
+    now = datetime.now().time().replace(second=0, microsecond=0)
     night_start_time = NIGHT_START.time().replace(second=0, microsecond=0)
     night_end_time = NIGHT_END.time().replace(second=0, microsecond=0)
 
-    # Check if current time is after NIGHT_END and before NIGHT_START
+    # Check if current time is after NIGHT_END and before NIGHT_START (daytime)
     if night_end_time <= now < night_start_time:
         new_brightness = BRIGHTNESS
     else:
         new_brightness = BRIGHTNESS_NIGHT
         
-    # Check if the brightness has changed
+    # Only update brightness if it has changed (avoids unnecessary writes)
     if matrix.brightness != new_brightness:
-        # Update the brightness
         matrix.brightness = new_brightness
         
 class Display(
@@ -81,9 +117,40 @@ class Display(
     DateScene,
     Animator,
 ):
-    def __init__(self):
-        # Setup Display
+    """Main display controller for the plane tracker RGB LED matrix.
+    
+    This class combines multiple scene classes through multiple inheritance to
+    create a unified display system. Each scene class provides specific rendering
+    capabilities (clock, temperature, flight details, etc.), while the Animator
+    base class provides the animation framework.
+    
+    The display uses a KeyFrame decorator pattern from Animator to schedule
+    different rendering and data-fetching operations at specific frame intervals.
+    Methods decorated with @Animator.KeyFrame.add(n) will be called every n frames.
+    
+    Attributes:
+        matrix: The RGBMatrix hardware interface.
+        canvas: The frame canvas for double-buffered rendering.
+        overhead: The Overhead utility for fetching flight data.
+        delay: Frame delay period in seconds.
+        
+    Note:
+        This class inherits from multiple scene classes and Animator. The order
+        of inheritance matters for method resolution order (MRO).
+    """
+    
+    def __init__(self) -> None:
+        """Initialize the Display with RGB matrix hardware and data sources.
+        
+        Sets up the RGB LED matrix with hardware-specific options, creates
+        a double-buffered canvas for smooth rendering, initializes the
+        Overhead flight data fetcher, and configures all inherited scene
+        classes through the parent Animator class.
+        """
+        # Setup logging for flight data debugging
         logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s: %(message)s')
+        
+        # Configure RGB matrix hardware options
         options = RGBMatrixOptions()
         options.hardware_mapping = "adafruit-hat-pwm" if HAT_PWM_ENABLED else "adafruit-hat"
         options.rows = 32
@@ -122,19 +189,53 @@ class Display(
         # Animator or Scenes
         self.delay = frames.PERIOD
 
-    def draw_square(self, x0, y0, x1, y1, colour):
+    def draw_square(self, x0: int, y0: int, x1: int, y1: int, colour: graphics.Color) -> None:
+        """Draw a filled rectangle on the canvas.
+        
+        Args:
+            x0: Left edge x-coordinate.
+            y0: Top edge y-coordinate.
+            x1: Right edge x-coordinate (exclusive).
+            y1: Bottom edge y-coordinate.
+            colour: RGB color to fill the rectangle with.
+        """
         for x in range(x0, x1):
             _ = graphics.DrawLine(self.canvas, x, y0, x, y1, colour)
-            
+
+    # =========================================================================
+    # KeyFrame-decorated methods
+    # =========================================================================
+    # The @Animator.KeyFrame.add(n) decorator registers methods to be called
+    # at specific frame intervals. The argument 'n' specifies after how many
+    # frames the method should be invoked:
+    #   - n=0: Called once at the start of each animation cycle (reset)
+    #   - n=1: Called every single frame
+    #   - n=frames.PER_SECOND * X: Called every X seconds
+    # 
+    # Methods receive a 'count' parameter (except for frame 0) indicating
+    # the current frame number in the animation cycle.
+    # =========================================================================
 
     @Animator.KeyFrame.add(0)
-    def clear_screen(self):
-        # First operation after
-        # a screen reset
+    def clear_screen(self) -> None:
+        """Clear the canvas at the start of each animation cycle.
+        
+        This is the first operation after a screen reset (frame 0).
+        It ensures a clean slate before rendering new content.
+        """
         self.canvas.Clear()
 
     @Animator.KeyFrame.add(frames.PER_SECOND * 5)
-    def check_for_loaded_data(self, count):
+    def check_for_loaded_data(self, count: int) -> None:
+        """Check for new flight data and update display if needed.
+        
+        Called every 5 seconds to check if the Overhead utility has fetched
+        new flight data. If new data is available and different from what's
+        currently displayed, triggers a scene reset to render the new data.
+        
+        Args:
+            count: Current frame count in the animation cycle.
+        """
         if self.overhead.new_data:
             # Check if there's data
             there_is_data = len(self._data) > 0 or not self.overhead.data_is_empty
@@ -165,8 +266,17 @@ class Display(
                 self.reset_scene()
 
     @Animator.KeyFrame.add(1)
-    def sync(self, count):
-        # Redraw screen every frame
+    def sync(self, count: int) -> None:
+        """Synchronize canvas with display and adjust brightness.
+        
+        Called every frame to swap the double-buffered canvas to the display
+        synchronized with vertical refresh, and to check/adjust brightness
+        based on time of day.
+        
+        Args:
+            count: Current frame count in the animation cycle.
+        """
+        # Swap double-buffered canvas on vertical sync for smooth display
         _ = self.matrix.SwapOnVSync(self.canvas)
         
     
@@ -174,7 +284,20 @@ class Display(
         adjust_brightness(self.matrix)
 
     @Animator.KeyFrame.add(frames.PER_SECOND * 30)
-    def grab_new_data(self, count):
+    def grab_new_data(self, count: int) -> None:
+        """Trigger fetching of new flight data from the overhead scanner.
+        
+        Called every 30 seconds to request fresh flight data. To avoid
+        redundant API calls and ensure smooth display transitions, data
+        is only fetched when:
+        - Not already processing a request
+        - No unprocessed new data is waiting
+        - All current flight data has been displayed at least once
+        - OR the internal data store has 1 or fewer flights
+        
+        Args:
+            count: Current frame count in the animation cycle.
+        """
         # Only grab data if we're not already searching
         # for planes, or if there's new data available
         # which hasn't been displayed.
@@ -190,7 +313,13 @@ class Display(
             logging.info("Grabbing new flight data from overhead.")
             self.overhead.grab_data()
 
-    def run(self):
+    def run(self) -> None:
+        """Start the main display loop.
+        
+        Begins the animation playback which continuously renders frames
+        to the LED matrix. The loop runs until interrupted by the user
+        with CTRL-C.
+        """
         try:
             # Start loop
             print("Press CTRL-C to stop")

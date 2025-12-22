@@ -73,7 +73,22 @@ def ordinal(n: int):
 
 
 def haversine(lat1, lon1, lat2, lon2):
-    """Internal helper for distance."""
+    """
+    Calculate the great-circle distance between two points on Earth.
+    
+    Uses the Haversine formula to compute the shortest distance over the
+    Earth's surface between two points specified by latitude and longitude.
+    
+    Args:
+        lat1: Latitude of the first point in decimal degrees.
+        lon1: Longitude of the first point in decimal degrees.
+        lat2: Latitude of the second point in decimal degrees.
+        lon2: Longitude of the second point in decimal degrees.
+    
+    Returns:
+        The distance between the two points. Units are determined by the
+        DISTANCE_UNITS config setting: kilometers if 'metric', miles otherwise.
+    """
     lat1, lon1 = map(math.radians, (lat1, lon1))
     lat2, lon2 = map(math.radians, (lat2, lon2))
 
@@ -91,12 +106,41 @@ def haversine(lat1, lon1, lat2, lon2):
 
 
 def degrees_to_cardinal(deg):
+    """
+    Convert a compass bearing in degrees to a cardinal direction.
+    
+    Converts a numeric bearing (0-360 degrees) to one of eight cardinal
+    or intercardinal directions (N, NE, E, SE, S, SW, W, NW).
+    
+    Args:
+        deg: Compass bearing in degrees (0-360), where 0/360 is North,
+             90 is East, 180 is South, and 270 is West.
+    
+    Returns:
+        A string representing the cardinal direction (e.g., 'N', 'NE', 'SW').
+    """
     dirs = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
     idx = int((deg + 22.5) / 45)
     return dirs[idx % 8]
 
 
 def plane_bearing(flight, home=LOCATION_DEFAULT):
+    """
+    Calculate the compass bearing from home to a flight's position.
+    
+    Computes the initial bearing (forward azimuth) from the home location
+    to the aircraft's current position using spherical trigonometry.
+    
+    Args:
+        flight: A flight object with 'latitude' and 'longitude' attributes
+                representing the aircraft's current position.
+        home: A tuple or list of (latitude, longitude) for the reference
+              point. Defaults to LOCATION_DEFAULT.
+    
+    Returns:
+        The bearing in degrees (0-360), where 0 is North, 90 is East,
+        180 is South, and 270 is West.
+    """
     lat1, lon1 = map(math.radians, home)
     lat2, lon2 = map(math.radians, (flight.latitude, flight.longitude))
 
@@ -122,7 +166,23 @@ def distance_to_point(flight, lat, lon):
 # Logging Closest Flights
 
 def log_flight_data(entry: dict):
-    """Track top-N closest flights and email only when NEW enters top-N."""
+    """
+    Track and log the top-N closest flights to the home location.
+    
+    This function maintains a persistent list of the closest flights observed.
+    When a new flight enters the top-N closest list, it triggers an email
+    notification with an updated map. Existing flights are updated only if
+    a closer distance is recorded.
+    
+    Args:
+        entry: A dictionary containing flight data including 'callsign',
+               'distance', and other flight details.
+    
+    Side Effects:
+        - Updates the close.txt JSON file with top-N closest flights
+        - Sends email alerts for new entries in the top-N list
+        - Generates and uploads map visualizations
+    """
     try:
         entry["timestamp"] = email_alerts.get_timestamp()
         lst = safe_load_json(LOG_FILE)
@@ -164,12 +224,29 @@ def log_flight_data(entry: dict):
             email_alerts.send_flight_summary(subject, entry, map_url=url)
 
     except Exception as e:
-        print("Failed to log closest flight:", e)
+        logging.error("Failed to log closest flight: %s", e)
 
 # Logging Farthest Flights
 
 def log_farthest_flight(entry: dict):
-    """Track farthest airports (origin or destination)."""
+    """
+    Track and log flights with the farthest origin or destination airports.
+    
+    This function maintains a persistent list of flights that have traveled
+    from or are traveling to the farthest airports relative to the home
+    location. It determines whether the origin or destination is farther
+    and records the flight accordingly.
+    
+    Args:
+        entry: A dictionary containing flight data including 'distance_origin',
+               'distance_destination', 'origin', 'destination', 'callsign',
+               and other flight details.
+    
+    Side Effects:
+        - Updates the farthest.txt JSON file with top-N farthest flights
+        - Sends email alerts for new farthest airport entries
+        - Generates and uploads map visualizations
+    """
     try:
         d_o = entry.get("distance_origin", -1)
         d_d = entry.get("distance_destination", -1)
@@ -234,7 +311,7 @@ def log_farthest_flight(entry: dict):
             email_alerts.send_flight_summary(subject, entry, reason, map_url=url)
 
     except Exception as e:
-        print("Failed to log farthest flight:", e)
+        logging.error("Failed to log farthest flight: %s", e)
 
 
 # Overhead Class
@@ -387,7 +464,7 @@ class Overhead:
     def data(self):
         with self._lock:
             self._new_data = False
-            return self._data
+            return list(self._data)
 
     @property
     def data_is_empty(self):
@@ -400,7 +477,7 @@ if __name__ == "__main__":
     o.grab_data()
 
     while not o.new_data:
-        print("processing...")
+        logging.info("processing...")
         sleep(1)
 
-    print(o.data)
+    logging.info(o.data)
