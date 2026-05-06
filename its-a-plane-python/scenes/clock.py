@@ -3,7 +3,7 @@
 from datetime import datetime, date
 from typing import Optional, Tuple
 
-from rgbmatrix import graphics
+from matrix_backend import graphics
 
 from config import CLOCK_FORMAT
 from utilities.temperature import grab_forecast

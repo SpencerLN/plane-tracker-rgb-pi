@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Optional, Tuple, Any
 
-from rgbmatrix import graphics
+from matrix_backend import graphics
 
 from config import NIGHT_START, NIGHT_END
 from utilities.temperature import grab_forecast

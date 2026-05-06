@@ -29,8 +29,7 @@ from scenes.planedetails import PlaneDetailsScene
 from scenes.daysforecast import DaysForecastScene
 from scenes.date import DateScene
 
-from rgbmatrix import graphics
-from rgbmatrix import RGBMatrix, RGBMatrixOptions
+from matrix_backend import RGBMatrix, RGBMatrixOptions, graphics, using_simulator
 
 
 def flight_updated(flights_a: List[Dict[str, Any]], flights_b: List[Dict[str, Any]]) -> bool:
@@ -150,6 +149,9 @@ class Display(
         # Setup logging for flight data debugging
         logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s: %(message)s')
         
+        backend = "simulator" if using_simulator() else "hardware"
+        logging.info("Initialising RGB matrix backend: %s", backend)
+
         # Configure RGB matrix hardware options
         options = RGBMatrixOptions()
         options.hardware_mapping = "adafruit-hat-pwm" if HAT_PWM_ENABLED else "adafruit-hat"

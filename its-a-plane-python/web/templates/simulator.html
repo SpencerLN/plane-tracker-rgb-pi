@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>Matrix Simulator</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #0f172a; color: #e2e8f0; margin: 0; padding: 20px; }
+        h1 { margin-top: 0; }
+        .frame { display: flex; justify-content: center; align-items: center; margin-top: 20px; }
+        img { border: 4px solid #1e293b; border-radius: 8px; background: #000; }
+        .status { margin-top: 10px; color: #94a3b8; }
+        button { background: #2563eb; border: none; color: #fff; padding: 10px 16px; border-radius: 6px; cursor: pointer; }
+        button:disabled { background: #475569; cursor: not-allowed; }
+    </style>
+</head>
+<body>
+    <h1>LED Matrix Simulator</h1>
+    <p>Frames are rendered to <code>web/static/simulator/latest.png</code>. This page refreshes the image every second.</p>
+    <div class="frame">
+        <img id="matrix" src="/simulator/image" alt="LED matrix output" width="640" height="320" />
+    </div>
+    <div class="status">
+        <span id="status-text"></span>
+        <button id="refresh-btn">Refresh now</button>
+    </div>
+    <script>
+        const img = document.getElementById('matrix');
+        const status = document.getElementById('status-text');
+        const btn = document.getElementById('refresh-btn');
+
+        function refreshFrame() {
+            const ts = Date.now();
+            img.src = `/simulator/image?cacheBust=${ts}`;
+        }
+
+        img.addEventListener('error', () => {
+            status.textContent = 'Waiting for first frame...';
+        });
+
+        img.addEventListener('load', () => {
+            status.textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
+        });
+
+        btn.addEventListener('click', refreshFrame);
+
+        setInterval(refreshFrame, 1000);
+    </script>
+</body>
+</html>

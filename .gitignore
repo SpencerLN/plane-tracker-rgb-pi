@@ -71,6 +71,7 @@ its-a-plane-python/utilities/temperature_cache.json
 its-a-plane-python/utilities/forecast_cache.json
 its-a-plane-python/web/static/maps/*.html
 its-a-plane-python/web/static/maps/*.png
+its-a-plane-python/web/static/simulator/*.png
 *.log
 workdammit.log
 

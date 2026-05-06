@@ -1,6 +1,6 @@
 from datetime import datetime
 import colorsys
-from rgbmatrix import graphics
+from matrix_backend import graphics
 from utilities.animator import Animator
 from setup import colours, fonts, frames, screen
 from utilities.temperature import grab_temperature_and_humidity

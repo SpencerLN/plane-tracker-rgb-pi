@@ -257,3 +257,21 @@ If you'd like to add a power button, you can solder the button to the **GND/SCL*
 git clone https://github.com/Howchoo/pi-power-button.git
 ./pi-power-button/script/install
 ```
+
+## Local Development (Matrix Simulator + Dev Container)
+
+You can now develop and preview the display without Raspberry Pi hardware:
+
+1. Install the VS Code **Dev Containers** extension and open this repository.
+2. Run “Dev Containers: Reopen in Container”. The container uses Python 3.11 and automatically installs `requirements.txt`.
+3. The container starts with `RGBMATRIX_FORCE_SIMULATOR=1`, so the new software backend in `matrix_backend.py` will load `simulator/rgbmatrix_simulator.py` instead of the real hardware driver.
+4. From the container shell run `python its-a-plane-python/its-a-plane.py`. This launches the Flask UI and the animator loop.
+5. Open http://localhost:8080/simulator in your browser to see the rendered 64x32 matrix as a PNG that refreshes every second.
+
+Simulator notes:
+- Frames are dumped to `its-a-plane-python/web/static/simulator/latest.png` (ignored by git). Adjust `RGBMATRIX_SIM_SCALE` to change the preview size and `RGBMATRIX_SIM_OUTPUT` to change the output directory.
+- Set `RGBMATRIX_FORCE_SIMULATOR=1` (default in the container) to force the simulator even if the hardware library is installed.
+- Set `RGBMATRIX_FORCE_HARDWARE=1` on the Pi if you want the app to fail fast when the C extension is missing.
+- The Flask home page now links to `/simulator`, which is the easiest way to verify rendering locally.
+
+With this workflow you can add new scenes, tweak fonts/colours, and iterate entirely on your laptop before deploying to a Raspberry Pi.

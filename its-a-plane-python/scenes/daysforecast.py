@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Optional, List, Dict, Any
 
 from PIL import Image
-from rgbmatrix import graphics
+from matrix_backend import graphics
 
 from config import NIGHT_START, NIGHT_END
 from utilities.animator import Animator

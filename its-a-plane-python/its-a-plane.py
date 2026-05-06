@@ -104,4 +104,4 @@ if __name__ == "__main__":
     except Exception as e:
         logger.exception(f"Fatal error in main: {e}")
         cleanup()
-        sys.exit(1)
+    sys.exit(1)

@@ -2,8 +2,12 @@
 
 import sys
 import time
-from rgbmatrix import RGBMatrix, RGBMatrixOptions
-from rgbmatrix import graphics
+import os
+
+ROOT = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(ROOT, "its-a-plane-python"))
+
+from matrix_backend import RGBMatrix, RGBMatrixOptions, graphics
 
 # Matrix options (same as main script)
 options = RGBMatrixOptions()

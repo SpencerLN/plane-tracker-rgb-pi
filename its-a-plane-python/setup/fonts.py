@@ -1,5 +1,5 @@
 import os
-from rgbmatrix import graphics
+from matrix_backend import graphics
 
 # Fonts
 DIR_PATH = os.path.dirname(os.path.realpath(__file__))

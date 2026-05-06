@@ -14,6 +14,8 @@ logger = logging.getLogger(__name__)
 # /web is the folder that this file lives in
 WEB_DIR = os.path.dirname(__file__)
 BASE_DIR = os.path.abspath(os.path.join(WEB_DIR, ".."))
+SIMULATOR_DIR = os.path.join(WEB_DIR, "static", "simulator")
+SIMULATOR_IMAGE = os.path.join(SIMULATOR_DIR, "latest.png")
 
 app = Flask(
     __name__,
@@ -56,6 +58,21 @@ def health_check():
 @app.get("/")
 def index():
     return render_template("index.html")
+
+
+@app.get("/simulator")
+def simulator_page():
+    return render_template("simulator.html")
+
+
+@app.get("/simulator/image")
+def simulator_image():
+    if not os.path.exists(SIMULATOR_IMAGE):
+        logger.warning("Simulator image not found at %s", SIMULATOR_IMAGE)
+        return ("Simulator image not found", 404)
+    response = send_from_directory(SIMULATOR_DIR, "latest.png")
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    return response
 
 
 @app.get("/closest/json")
