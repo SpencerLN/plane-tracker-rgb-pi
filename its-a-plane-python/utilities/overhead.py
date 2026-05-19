@@ -8,8 +8,8 @@ from threading import Thread, Lock
 from datetime import datetime
 from typing import Optional, Tuple
 
-from FlightRadar24.api import FlightRadar24API
-from requests.exceptions import ConnectionError
+import requests
+from requests.exceptions import ConnectionError, Timeout, RequestException
 from urllib3.exceptions import NewConnectionError, MaxRetryError
 
 from config import (
@@ -17,6 +17,10 @@ from config import (
     CLOCK_FORMAT,
     MAX_FARTHEST,
     MAX_CLOSEST,
+    ADSB_URL,
+    RANGE,
+    SWIM_API_URL,
+    SWIM_API_KEY,
 )
 
 from setup import email_alerts
@@ -51,6 +55,76 @@ BLANK_FIELDS = ["", "N/A", "NONE"]
 BASE_DIR = os.path.dirname(os.path.dirname(__file__))
 LOG_FILE = os.path.join(BASE_DIR, "close.txt")
 LOG_FILE_FARTHEST = os.path.join(BASE_DIR, "farthest.txt")
+REFERENCE_DIR = os.path.join(BASE_DIR, "reference")
+
+# --- ADS-B URL formatting ---
+# If the URL contains placeholders, format them with home coordinates and range
+_ADSB_URL = ADSB_URL
+if '{lat}' in _ADSB_URL or '{lon}' in _ADSB_URL or '{range}' in _ADSB_URL:
+    _ADSB_URL = _ADSB_URL.format(lat=LOCATION_DEFAULT[0], lon=LOCATION_DEFAULT[1], range=RANGE)
+
+# --- Reference Data Loading ---
+
+def _load_reference(filename):
+    """Load a JSON reference file from the reference directory."""
+    path = os.path.join(REFERENCE_DIR, filename)
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        logging.warning("Failed to load reference file %s: %s", filename, e)
+        return {}
+
+
+AIRLINES = _load_reference("airlines.json")
+AIRPORTS = _load_reference("airports.json")
+REGIONALS = _load_reference("regional.json")
+
+# Build aircraft type lookup with formatted names
+_icao_raw = _load_reference("ICAOList.json")
+AIRCRAFT_TYPES = {}
+for _code, _entry in _icao_raw.items():
+    _raw = _entry.get('MANUFACTURER, Model', '') if isinstance(_entry, dict) else ''
+    _parts = [p.strip() for p in _raw.split(',', 1)]
+    if len(_parts) > 1:
+        _name = f"{_parts[0].title()} {_parts[1]}"
+    else:
+        _name = _raw.title()
+    AIRCRAFT_TYPES[_code.upper()] = _name
+
+# Build reverse index: IATA code -> airport entry
+AIRPORTS_BY_IATA = {v['iata']: v for v in AIRPORTS.values() if isinstance(v, dict) and v.get('iata')}
+
+
+def lookup_airport(code):
+    """Resolve an airport code (3-char IATA or 4-char ICAO) to its entry."""
+    if not code:
+        return {}
+    if len(code) == 4:
+        return AIRPORTS.get(code, {})
+    if len(code) == 3:
+        return AIRPORTS_BY_IATA.get(code, {})
+    return {}
+
+
+def lookup_airline(icao_code):
+    """Resolve an ICAO airline code to its company name with acronym protection."""
+    if not icao_code:
+        return None
+    entry = AIRLINES.get(icao_code.upper())
+    if not entry:
+        return None
+    company = entry.get('Company', '')
+    if not company:
+        return None
+    base_name = company.split(',', 1)[0].strip()
+    protected = {'KLM', 'PSA'}
+    words = base_name.split()
+    formatted_words = [
+        word.upper() if word.upper() in protected else word.title()
+        for word in words
+    ]
+    return " ".join(formatted_words)
 
 # Utility Functions
 
@@ -124,16 +198,13 @@ def degrees_to_cardinal(deg):
     return dirs[idx % 8]
 
 
-def plane_bearing(flight, home=LOCATION_DEFAULT):
+def plane_bearing(lat, lon, home=LOCATION_DEFAULT):
     """
-    Calculate the compass bearing from home to a flight's position.
-    
-    Computes the initial bearing (forward azimuth) from the home location
-    to the aircraft's current position using spherical trigonometry.
+    Calculate the compass bearing from home to a position.
     
     Args:
-        flight: A flight object with 'latitude' and 'longitude' attributes
-                representing the aircraft's current position.
+        lat: Latitude of the aircraft's current position.
+        lon: Longitude of the aircraft's current position.
         home: A tuple or list of (latitude, longitude) for the reference
               point. Defaults to LOCATION_DEFAULT.
     
@@ -142,7 +213,7 @@ def plane_bearing(flight, home=LOCATION_DEFAULT):
         180 is South, and 270 is West.
     """
     lat1, lon1 = map(math.radians, home)
-    lat2, lon2 = map(math.radians, (flight.latitude, flight.longitude))
+    lat2, lon2 = map(math.radians, (lat, lon))
 
     b = math.atan2(
         math.sin(lon2 - lon1) * math.cos(lat2),
@@ -153,15 +224,12 @@ def plane_bearing(flight, home=LOCATION_DEFAULT):
 
 # Distance wrappers
 
-def distance_from_flight_to_home(flight):
-    return haversine(
-        flight.latitude, flight.longitude,
-        LOCATION_DEFAULT[0], LOCATION_DEFAULT[1],
-    )
+def distance_from_home(lat, lon):
+    return haversine(lat, lon, LOCATION_DEFAULT[0], LOCATION_DEFAULT[1])
 
 
-def distance_to_point(flight, lat, lon):
-    return haversine(flight.latitude, flight.longitude, lat, lon)
+def distance_to_point(lat1, lon1, lat2, lon2):
+    return haversine(lat1, lon1, lat2, lon2)
 
 # Logging Closest Flights
 
@@ -319,7 +387,6 @@ def log_farthest_flight(entry: dict):
 class Overhead:
     def __init__(self):
         logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s: %(message)s')
-        self._api = FlightRadar24API()
         self._lock = Lock()
         self._data = []
         self._new_data = False
@@ -330,14 +397,178 @@ class Overhead:
         logging.info("Starting new thread to grab flight data.")
         Thread(target=self._grab).start()
 
-    # Safe nested dict access
-    def safe_get(self, d, *keys, default=None):
-        """Safely get nested dictionary values."""
-        for key in keys:
-            if not d or not isinstance(d, dict):
-                return default
-            d = d.get(key)
-        return d if d is not None else default
+    def _get_altitude(self, ac):
+        """Returns numeric altitude in feet, or 0 for 'ground' or missing values."""
+        alt = ac.get('alt_baro', 0)
+        if isinstance(alt, str):
+            return 0
+        return alt or 0
+
+    def _filter_valid_planes(self, aircraft_list):
+        """Filter aircraft to those with required fields, fresh signal, altitude, and within range."""
+        # Convert RANGE (nautical miles) to the unit used by haversine
+        nm_to_unit = 1.852 if DISTANCE_UNITS == "metric" else 1.15078
+        max_distance = RANGE * nm_to_unit
+
+        valid = []
+        for ac in aircraft_list:
+            if not all(k in ac for k in ('lat', 'lon', 'flight')):
+                continue
+            if ac.get('seen', 99) >= 15:
+                continue
+            if self._get_altitude(ac) < MIN_ALTITUDE:
+                continue
+            dist = distance_from_home(ac['lat'], ac['lon'])
+            if dist > max_distance:
+                continue
+            ac['dist'] = dist
+            valid.append(ac)
+        return valid
+
+    def _query_swim(self, callsign):
+        """Query SWIM API for flight details by callsign. Returns a dict or empty dict."""
+        if not SWIM_API_URL or not SWIM_API_KEY:
+            return {}
+        try:
+            response = requests.get(
+                f"{SWIM_API_URL}/swim-combined-flights/_search?size=10",
+                headers={
+                    "Authorization": f"ApiKey {SWIM_API_KEY}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "sort": [{"last_update": {"order": "desc"}}],
+                    "query": {
+                        "bool": {
+                            "filter": [
+                                {"term": {"flight_id": callsign}},
+                                {"terms": {"latest_status": ["ACTIVE", "PLANNED", "PROPOSED"]}},
+                                {"bool": {"must_not": {"range": {"latest_etd": {"gte": "now+6h"}}}}}
+                            ]
+                        }
+                    }
+                },
+                timeout=5
+            )
+            response.raise_for_status()
+            hits = response.json().get('hits', {}).get('hits', [])
+            if not hits:
+                return {}
+
+            # Prefer ACTIVE; fall back to most-recently-updated
+            active_hits = [h for h in hits if h.get('_source', {}).get('latest_status') == 'ACTIVE']
+            best_hit = active_hits[0] if active_hits else hits[0]
+            details = best_hit.get('_source', {})
+
+            # Backfill missing fields from other hits on the same leg
+            same_leg_hits = [
+                h for h in hits
+                if h is not best_hit
+                and h.get('_source', {}).get('dep_airport') == details.get('dep_airport')
+                and h.get('_source', {}).get('arr_airport') == details.get('arr_airport')
+            ]
+            for h in same_leg_hits:
+                for key, val in h.get('_source', {}).items():
+                    if val is not None and not details.get(key):
+                        details[key] = val
+
+            return details
+
+        except (RequestException, Timeout, ValueError) as e:
+            logging.warning("SWIM API query failed for %s: %s", callsign, e)
+            return {}
+
+    def _iso_to_unix(self, timestamp_str):
+        """Convert an ISO timestamp string to unix epoch seconds, or None."""
+        if not timestamp_str:
+            return None
+        try:
+            dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+            return int(dt.timestamp())
+        except (ValueError, TypeError):
+            return None
+
+    def _build_entry(self, ac, swim_details):
+        """Transform ADS-B aircraft + SWIM details into the expected data dict format."""
+        callsign = ac.get('flight', '').strip()
+        plane_lat = ac['lat']
+        plane_lon = ac['lon']
+
+        # Resolve operator/airline — normalize None to empty string
+        major_code = swim_details.get('major') or ''
+        operator_code = swim_details.get('operator') or ''
+
+        # If major == operator or major == 'XXX', ignore major
+        if major_code and (major_code.upper() == operator_code.upper() or major_code.upper() == 'XXX'):
+            major_code = ''
+
+        if major_code:
+            airline_name = REGIONALS.get(major_code.upper()) or lookup_airline(major_code) or ""
+            owner_icao = major_code.upper()
+        else:
+            airline_name = lookup_airline(operator_code) or ""
+            owner_icao = operator_code.upper() if operator_code else ""
+
+        # Aircraft type
+        model_val = swim_details.get('aircraft_model') or swim_details.get('aircraft_type') or ''
+        plane_code = model_val  # Keep raw code for display (e.g., "B738")
+
+        # Origin/destination airports
+        dep_airport_code = swim_details.get('dep_airport', '')
+        arr_airport_code = swim_details.get('arr_airport', '')
+        
+        dep_info = lookup_airport(dep_airport_code)
+        arr_info = lookup_airport(arr_airport_code)
+
+        # Get IATA codes for display (scenes expect 3-letter IATA)
+        origin_iata = dep_info.get('iata', '') or dep_airport_code or ''
+        dest_iata = arr_info.get('iata', '') or arr_airport_code or ''
+
+        # Airport coordinates
+        origin_lat = dep_info.get('lat')
+        origin_lon = dep_info.get('lon')
+        dest_lat = arr_info.get('lat')
+        dest_lon = arr_info.get('lon')
+
+        # Distances from plane to airports
+        dist_o = distance_to_point(plane_lat, plane_lon, origin_lat, origin_lon) if origin_lat and origin_lon else 0
+        dist_d = distance_to_point(plane_lat, plane_lon, dest_lat, dest_lon) if dest_lat and dest_lon else 0
+
+        # Times - convert ISO strings to unix timestamps
+        time_sched_dep = self._iso_to_unix(swim_details.get('original_etd') or swim_details.get('latest_etd'))
+        time_sched_arr = self._iso_to_unix(swim_details.get('original_eta') or swim_details.get('latest_eta'))
+        time_real_dep = self._iso_to_unix(swim_details.get('dep_time_actual') or swim_details.get('dep_time_estimated'))
+        time_est_arr = self._iso_to_unix(swim_details.get('latest_eta') or swim_details.get('arr_time_estimated'))
+
+        entry = {
+            "airline": airline_name,
+            "plane": plane_code,
+            "origin": origin_iata,
+            "origin_latitude": origin_lat,
+            "origin_longitude": origin_lon,
+            "destination": dest_iata,
+            "destination_latitude": dest_lat,
+            "destination_longitude": dest_lon,
+            "plane_latitude": plane_lat,
+            "plane_longitude": plane_lon,
+
+            "owner_iata": "N/A",
+            "owner_icao": owner_icao,
+
+            "time_scheduled_departure": time_sched_dep,
+            "time_scheduled_arrival": time_sched_arr,
+            "time_real_departure": time_real_dep,
+            "time_estimated_arrival": time_est_arr,
+
+            "vertical_speed": ac.get('baro_rate', 0) or 0,
+            "callsign": callsign,
+
+            "distance_origin": dist_o,
+            "distance_destination": dist_d,
+            "distance": ac.get('dist', distance_from_home(plane_lat, plane_lon)),
+            "direction": degrees_to_cardinal(plane_bearing(plane_lat, plane_lon)),
+        }
+        return entry
 
     def _grab(self):
         with self._lock:
@@ -345,106 +576,67 @@ class Overhead:
             self._processing = True
 
         data = []
+        swim_cache = {}  # Cache SWIM results by hex code within this cycle
 
         try:
-            logging.info("Fetching bounds and flights from FlightRadar24API.")
-            bounds = self._api.get_bounds_by_point(LOCATION_HOME[0], LOCATION_HOME[1], 10000)
-            flights = self._api.get_flights(bounds=bounds)
-            logging.info(f"Found {len(flights)} flights in bounds.")
+            logging.info("Fetching aircraft from ADS-B source: %s", _ADSB_URL)
+            response = requests.get(_ADSB_URL, timeout=5)
+            response.raise_for_status()
+            adsb_data = response.json()
 
-            # Altitude filter
-            flights = [f for f in flights if MIN_ALTITUDE < f.altitude < MAX_ALTITUDE]
-            logging.info(f"Filtered to {len(flights)} flights by altitude.")
+            # Handle both adsb.lol format ('ac') and dump1090/tar1090 format ('aircraft')
+            aircraft_list = adsb_data.get('ac') or adsb_data.get('aircraft') or []
+            logging.info("Received %d aircraft from ADS-B source.", len(aircraft_list))
 
-            # Sort & slice
-            flights.sort(key=lambda f: distance_from_flight_to_home(f))
-            flights = flights[:MAX_FLIGHT_LOOKUP]
-            logging.info(f"Processing up to {len(flights)} flights for details.")
+            # Filter valid planes
+            valid_planes = self._filter_valid_planes(aircraft_list)
+            logging.info("Filtered to %d valid aircraft.", len(valid_planes))
 
-            for f in flights:
-                retries = RETRIES
-                while retries:
-                    sleep(RATE_LIMIT_DELAY)
-                    try:
-                        logging.info(f"Fetching details for flight: {f.callsign}")
-                        d = self._api.get_flight_details(f)
+            if not valid_planes:
+                with self._lock:
+                    self._new_data = True
+                    self._processing = False
+                    self._data = data
+                return
 
-                        # Extract fields
-                        plane = self.safe_get(d, "aircraft", "model", "code", default="") or f.airline_icao or ""
-                        airline = self.safe_get(d, "airline", "name", default="")
+            # Sort by distance and take top N
+            valid_planes.sort(key=lambda ac: ac['dist'])
+            closest = valid_planes[:MAX_FLIGHT_LOOKUP]
+            logging.info("Processing up to %d closest flights for details.", len(closest))
 
-                        origin = f.origin_airport_iata or ""
-                        destination = f.destination_airport_iata or ""
-                        callsign = f.callsign or ""
+            for ac in closest:
+                callsign = ac.get('flight', '').strip()
+                hex_code = ac.get('hex', '').strip().lower()
 
-                        # Times
-                        t = self.safe_get(d, "time", default={})
-                        time_sched_dep = self.safe_get(t, "scheduled", "departure")
-                        time_sched_arr = self.safe_get(t, "scheduled", "arrival")
-                        time_real_dep = self.safe_get(t, "real", "departure")
-                        time_est_arr = self.safe_get(t, "estimated", "arrival")
+                if not callsign:
+                    continue
 
-                        # Airport coordinates
-                        o = self.safe_get(d, "airport", "origin")
-                        origin_lat = self.safe_get(o, "position", "latitude")
-                        origin_lon = self.safe_get(o, "position", "longitude")
+                # Check SWIM cache
+                if hex_code and hex_code in swim_cache:
+                    swim_details = swim_cache[hex_code]
+                    logging.info("SWIM cache hit for %s (%s)", callsign, hex_code)
+                else:
+                    logging.info("Querying SWIM API for %s", callsign)
+                    swim_details = self._query_swim(callsign)
+                    if hex_code:
+                        swim_cache[hex_code] = swim_details
 
-                        dest = self.safe_get(d, "airport", "destination")
-                        dest_lat = self.safe_get(dest, "position", "latitude")
-                        dest_lon = self.safe_get(dest, "position", "longitude")
+                entry = self._build_entry(ac, swim_details)
+                data.append(entry)
 
-                        dist_o = distance_to_point(f, origin_lat, origin_lon) if origin_lat else 0
-                        dist_d = distance_to_point(f, dest_lat, dest_lon) if dest_lat else 0
+                # Log flights
+                log_flight_data(entry)
+                log_farthest_flight(entry)
 
-                        entry = {
-                            "airline": airline,
-                            "plane": plane,
-                            "origin": origin,
-                            "origin_latitude": origin_lat,
-                            "origin_longitude": origin_lon,
-                            "destination": destination,
-                            "destination_latitude": dest_lat,
-                            "destination_longitude": dest_lon,
-                            "plane_latitude": f.latitude,
-                            "plane_longitude": f.longitude,
-
-                            "owner_iata": f.airline_iata or "N/A",
-                            "owner_icao": self.safe_get(d, "owner", "code", "icao", default="") or f.airline_icao or "",
-
-                            "time_scheduled_departure": time_sched_dep,
-                            "time_scheduled_arrival": time_sched_arr,
-                            "time_real_departure": time_real_dep,
-                            "time_estimated_arrival": time_est_arr,
-
-                            "vertical_speed": f.vertical_speed,
-                            "callsign": callsign,
-
-                            "distance_origin": dist_o,
-                            "distance_destination": dist_d,
-                            "distance": distance_from_flight_to_home(f),
-                            "direction": degrees_to_cardinal(plane_bearing(f)),
-                        }
-
-                        data.append(entry)
-
-                        # Log flights
-                        log_flight_data(entry)
-                        log_farthest_flight(entry)
-
-                        logging.info(f"Flight details processed for: {callsign}")
-                        break
-
-                    except Exception as e:
-                        logging.info(f"Error fetching flight details for {f.callsign}: {e}. Retries left: {retries-1}")
-                        retries -= 1
+                logging.info("Flight processed: %s (dist: %.1f)", callsign, entry['distance'])
 
             with self._lock:
                 self._new_data = True
                 self._processing = False
                 self._data = data
 
-        except (ConnectionError, NewConnectionError, MaxRetryError):
-            logging.info("Connection error while fetching flight data.")
+        except (ConnectionError, NewConnectionError, MaxRetryError, RequestException) as e:
+            logging.info("Connection error while fetching flight data: %s", e)
             with self._lock:
                 self._new_data = False
                 self._processing = False

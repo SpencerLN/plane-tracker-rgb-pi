@@ -84,6 +84,16 @@ class Settings:
     MAX_CLOSEST: int = field(default_factory=lambda: _get_env('MAX_CLOSEST', 3, int))
     MAX_FARTHEST: int = field(default_factory=lambda: _get_env('MAX_FARTHEST', 3, int))
     
+    # ADS-B Data Source
+    # Supports local receiver (e.g. "http://192.168.10.120/tar1090/data/aircraft.json")
+    # or ADSB.lol (e.g. "https://api.adsb.lol/v2/point/{lat}/{lon}/{range}")
+    ADSB_URL: str = field(default_factory=lambda: _get_env('ADSB_URL', 'https://api.adsb.lol/v2/point/{lat}/{lon}/{range}'))
+    RANGE: int = field(default_factory=lambda: _get_env('RANGE', 50, int))
+    
+    # SWIM (System Wide Information Management) API for flight enrichment
+    SWIM_API_URL: Optional[str] = field(default_factory=lambda: _get_env('SWIM_API_URL'))
+    SWIM_API_KEY: Optional[str] = field(default_factory=lambda: _get_env('SWIM_API_KEY'))
+    
     # Units and Formats
     TEMPERATURE_UNITS: str = field(default_factory=lambda: _get_env('TEMPERATURE_UNITS', 'imperial'))
     DISTANCE_UNITS: str = field(default_factory=lambda: _get_env('DISTANCE_UNITS', 'imperial'))
@@ -156,3 +166,7 @@ FORECAST_DAYS = settings.FORECAST_DAYS
 EMAIL = settings.EMAIL
 MAX_FARTHEST = settings.MAX_FARTHEST
 MAX_CLOSEST = settings.MAX_CLOSEST
+ADSB_URL = settings.ADSB_URL
+RANGE = settings.RANGE
+SWIM_API_URL = settings.SWIM_API_URL
+SWIM_API_KEY = settings.SWIM_API_KEY
