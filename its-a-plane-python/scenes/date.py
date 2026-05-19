@@ -47,6 +47,8 @@ class DateScene(object):
         
         if self.last_fetched_moonphase != now.day:
             forecast = grab_forecast()
+            if forecast is None:
+                return self.today_moonphase
             for day in forecast:
                 forecast_date = day['startTime'][:10]
                 if forecast_date == now.strftime('%Y-%m-%d'):

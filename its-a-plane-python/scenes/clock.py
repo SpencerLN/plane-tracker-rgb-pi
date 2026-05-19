@@ -48,6 +48,8 @@ class ClockScene(object):
         # Check if it's a new day or if there is no cached data
         if self.last_fetch_date != now.date():
             forecast = grab_forecast()
+            if forecast is None:
+                return self.today_sunrise, self.today_sunset
             for day in forecast:
                 forecast_date = day['startTime'][:10]
                 if forecast_date == now.strftime('%Y-%m-%d'):

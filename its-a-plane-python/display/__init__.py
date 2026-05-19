@@ -309,7 +309,7 @@ class Display(
         #
         # Last, if our internal store of the data
         # is empty, try and grab data
-        if not (self.overhead.processing and self.overhead.new_data) and (
+        if not self.overhead.processing and not self.overhead.new_data and (
             self._data_all_looped or len(self._data) <= 1
         ):
             logging.info("Grabbing new flight data from overhead.")

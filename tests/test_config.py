@@ -16,8 +16,8 @@ class TestSettings:
         """Test that settings has sensible defaults."""
         from config import settings
         
-        assert settings.BRIGHTNESS == 100 or isinstance(settings.BRIGHTNESS, int)
-        assert settings.BRIGHTNESS_NIGHT == 50 or isinstance(settings.BRIGHTNESS_NIGHT, int)
+        assert settings.BRIGHTNESS == 100
+        assert settings.BRIGHTNESS_NIGHT == 50
         assert settings.TEMPERATURE_UNITS in ('metric', 'imperial')
         assert settings.DISTANCE_UNITS in ('metric', 'imperial')
         assert settings.CLOCK_FORMAT in ('12hr', '24hr')

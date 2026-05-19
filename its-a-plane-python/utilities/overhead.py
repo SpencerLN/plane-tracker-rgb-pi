@@ -531,8 +531,8 @@ class Overhead:
         dest_lon = arr_info.get('lon')
 
         # Distances from plane to airports
-        dist_o = distance_to_point(plane_lat, plane_lon, origin_lat, origin_lon) if origin_lat and origin_lon else 0
-        dist_d = distance_to_point(plane_lat, plane_lon, dest_lat, dest_lon) if dest_lat and dest_lon else 0
+        dist_o = distance_to_point(plane_lat, plane_lon, origin_lat, origin_lon) if origin_lat is not None and origin_lon is not None else 0
+        dist_d = distance_to_point(plane_lat, plane_lon, dest_lat, dest_lon) if dest_lat is not None and dest_lon is not None else 0
 
         # Times - convert ISO strings to unix timestamps
         time_sched_dep = self._iso_to_unix(swim_details.get('original_etd') or swim_details.get('latest_etd'))
