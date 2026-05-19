@@ -1,13 +1,16 @@
 import smtplib
 import socket
+import logging
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email import encoders
 from datetime import datetime
-from config import EMAIL, DISTANCE_UNITS, CLOCK_FORMAT
+from config import EMAIL, DISTANCE_UNITS, CLOCK_FORMAT, settings
 from typing import Optional
 import os
+
+logger = logging.getLogger(__name__)
 
 def get_timestamp():
     if CLOCK_FORMAT == "24hr":
@@ -24,8 +27,14 @@ def _send(subject: str, body: str, attachment_path: Optional[str] = None):
     if not EMAIL.strip():
         return
 
-    sender = "flight.tracker.alerts2025@gmail.com"
-    password = "wlst ujvs bcvu uhdr"
+    sender = settings.EMAIL_SENDER
+    password = settings.EMAIL_PASSWORD
+    
+    # Gracefully return if credentials are not configured
+    if not sender or not password:
+        logger.warning("Email credentials not configured. Set EMAIL_SENDER and EMAIL_PASSWORD environment variables.")
+        return
+    
     receiver = EMAIL
 
     if attachment_path and os.path.isfile(attachment_path):
@@ -55,7 +64,7 @@ def _send(subject: str, body: str, attachment_path: Optional[str] = None):
             smtp.login(sender, password)
             smtp.send_message(msg)
     except Exception as e:
-        print(f"⚠️ Failed to send email: {e}")
+        logger.error(f"Failed to send email: {e}")
 
 def send_flight_summary(subject: str, entry: dict, reason: Optional[str] = None, map_url: Optional[str] = None):
     hostname = socket.gethostname()

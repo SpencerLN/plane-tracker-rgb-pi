@@ -1,18 +1,40 @@
+"""Loading pulse scene module for displaying a processing indicator."""
+
+from typing import Tuple
+
 from utilities.animator import Animator
 from setup import colours
 
 # Setup
-BLINKER_POSITION = (63, 0)
-BLINKER_STEPS = 10
+BLINKER_POSITION: Tuple[int, int] = (63, 0)
+BLINKER_STEPS: int = 10
 BLINKER_COLOUR = colours.GREY
 
 
 class LoadingPulseScene(object):
-    def __init__(self):
+    """Scene that displays a pulsing indicator when processing is active.
+    
+    Shows a small blinking pixel in the corner of the display that pulses
+    to indicate background processing is occurring.
+    """
+
+    def __init__(self) -> None:
+        """Initialize the LoadingPulseScene."""
         super().__init__()
 
     @Animator.KeyFrame.add(2)
-    def loading_pulse(self, count):
+    def loading_pulse(self, count: int) -> bool:
+        """Update the loading pulse indicator.
+        
+        Displays a pulsing pixel when background processing is active.
+        The brightness fades in a cycle based on the frame count.
+        
+        Args:
+            count: Frame counter from the animator.
+            
+        Returns:
+            True if the counter should reset, False otherwise.
+        """
         reset_count = True
         if self.overhead.processing:
             # Calculate the brightness scaler and

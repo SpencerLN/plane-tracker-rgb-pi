@@ -1,4 +1,4 @@
-from rgbmatrix import graphics
+from matrix_backend import graphics
 
 # Colour helpers from lightest to darkest
 

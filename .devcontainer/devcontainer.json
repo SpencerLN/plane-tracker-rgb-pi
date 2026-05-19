@@ -1,0 +1,26 @@
+{
+    "name": "Plane Tracker Simulator",
+    "build": {
+        "dockerfile": "Dockerfile"
+    },
+    "features": {},
+    "runArgs": [
+        "-e", "RGBMATRIX_FORCE_SIMULATOR=1",
+        "-e", "FLASK_DEBUG=true"
+    ],
+    "forwardPorts": [8080],
+    "postCreateCommand": "pip install --upgrade pip && pip install -r requirements.txt",
+    "customizations": {
+        "vscode": {
+            "settings": {
+                "python.defaultInterpreterPath": "/usr/local/bin/python",
+                "python.formatting.provider": "black",
+                "editor.formatOnSave": true
+            },
+            "extensions": [
+                "ms-python.python",
+                "ms-python.vscode-pylance"
+            ]
+        }
+    }
+}

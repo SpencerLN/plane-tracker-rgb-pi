@@ -1,9 +1,12 @@
 from datetime import datetime, timedelta
+from typing import Optional, Tuple, List, Dict, Any
 import requests as r
-import pytz
 import time
 import json 
 import logging
+import os
+
+logger = logging.getLogger(__name__)
 
 # Attempt to load config data
 try:
@@ -25,7 +28,41 @@ from config import TEMPERATURE_LOCATION
 # Weather API
 TOMORROW_API_URL = "https://api.tomorrow.io/v4/"
 
-def grab_temperature_and_humidity(delay=2, max_retries=None):
+# Cache settings
+CACHE_FILE = os.path.join(os.path.dirname(__file__), "temperature_cache.json")
+FORECAST_CACHE_FILE = os.path.join(os.path.dirname(__file__), "forecast_cache.json")
+CACHE_DURATION = 1200  # 20 minutes in seconds
+
+# Retry settings
+MAX_RETRIES = 5
+
+
+def grab_temperature_and_humidity(delay: int = 2, max_retries: Optional[int] = None) -> Tuple[Optional[float], Optional[float]]:
+    """
+    Fetch current temperature and humidity from the Tomorrow.io API.
+    
+    Uses caching to avoid excessive API calls. If cached data is less than
+    CACHE_DURATION seconds old, returns cached values.
+    
+    Args:
+        delay: Number of seconds to wait between retry attempts.
+        max_retries: Maximum number of retry attempts. If None, uses default behavior.
+    
+    Returns:
+        A tuple of (temperature, humidity). Values may be None if fetching fails
+        and max_retries is reached, or 0 if data is missing from the API response.
+    """
+    # Check cache first
+    if os.path.exists(CACHE_FILE):
+        try:
+            with open(CACHE_FILE, 'r') as f:
+                cache_data = json.load(f)
+            cached_time = datetime.fromisoformat(cache_data['timestamp'])
+            if datetime.utcnow() - cached_time < timedelta(seconds=CACHE_DURATION):
+                return cache_data['temperature'], cache_data['humidity']
+        except (json.JSONDecodeError, KeyError, ValueError):
+            pass  # Ignore invalid cache
+
     current_temp, humidity = None, None
     retries = 0
 
@@ -49,31 +86,71 @@ def grab_temperature_and_humidity(delay=2, max_retries=None):
 
             # If temperature or humidity is missing, assign a default value of 0
             if current_temp is None:
-                logging.warning("Temperature data missing, defaulting to 0.")
+                logger.warning("Temperature data missing, defaulting to 0.")
                 current_temp = 0
 
             if humidity is None:
-                logging.warning("Humidity data missing, defaulting to 0.")
+                logger.warning("Humidity data missing, defaulting to 0.")
                 humidity = 0
 
             # If the data is valid (including defaults), exit the loop
             break
 
         except (r.exceptions.RequestException, ValueError) as e:
-            logging.error(f"Request failed. Error: {e}")
+            logger.error(f"Request failed. Error: {e}")
             
             retries += 1
             if max_retries and retries >= max_retries:
-                logging.error("Max retries reached. Exiting.")
+                logger.error("Max retries reached. Exiting.")
                 break
             
-            logging.info(f"Retrying in {delay} seconds...")
+            logger.info(f"Retrying in {delay} seconds...")
             time.sleep(delay)
+
+    # Save to cache if data was successfully fetched
+    if current_temp is not None and humidity is not None:
+        cache_data = {
+            'timestamp': datetime.utcnow().isoformat(),
+            'temperature': current_temp,
+            'humidity': humidity
+        }
+        try:
+            with open(CACHE_FILE, 'w') as f:
+                json.dump(cache_data, f)
+        except Exception:
+            pass  # Ignore if can't write
 
     return current_temp, humidity
 
-def grab_forecast(delay=2):
-    while True:
+
+def grab_forecast(delay: int = 2) -> Optional[List[Dict[str, Any]]]:
+    """
+    Fetch weather forecast data from the Tomorrow.io API.
+    
+    Retrieves daily forecast data including min/max temperatures, weather codes,
+    sunrise/sunset times, and moon phase for the configured number of days.
+    Uses caching to avoid excessive API calls.
+    
+    Args:
+        delay: Number of seconds to wait between retry attempts.
+    
+    Returns:
+        A list of forecast intervals, each containing weather data for a day.
+        Returns None if fetching fails after MAX_RETRIES attempts.
+    """
+    # Check cache first
+    if os.path.exists(FORECAST_CACHE_FILE):
+        try:
+            with open(FORECAST_CACHE_FILE, 'r') as f:
+                cache_data = json.load(f)
+            cached_time = datetime.fromisoformat(cache_data['timestamp'])
+            if datetime.utcnow() - cached_time < timedelta(seconds=CACHE_DURATION):
+                return cache_data['forecast']
+        except (json.JSONDecodeError, KeyError, ValueError):
+            pass  # Ignore invalid cache
+
+    retries = 0
+    while retries < MAX_RETRIES:
         try:
             current_time = datetime.utcnow()
             dt = current_time + timedelta(hours=6)
@@ -118,11 +195,26 @@ def grab_forecast(delay=2):
             if not forecast:
                 raise KeyError("Forecast intervals not found in timelines.")
 
+            # Save to cache
+            cache_data = {
+                'timestamp': datetime.utcnow().isoformat(),
+                'forecast': forecast
+            }
+            try:
+                with open(FORECAST_CACHE_FILE, 'w') as f:
+                    json.dump(cache_data, f)
+            except Exception:
+                pass  # Ignore if can't write
+
             return forecast
 
         except (r.exceptions.RequestException, KeyError) as e:
-            logging.error(f"Request failed. Error: {e}")
-            logging.info(f"Retrying in {delay} seconds...")
+            logger.error(f"Request failed. Error: {e}")
+            retries += 1
+            if retries >= MAX_RETRIES:
+                logger.error("Max retries reached for forecast. Exiting.")
+                break
+            logger.info(f"Retrying in {delay} seconds...")
             time.sleep(delay)
     
     return None
