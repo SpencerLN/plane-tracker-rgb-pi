@@ -35,7 +35,7 @@ if not _FORCE_SIM:
         _BACKEND_NAME = "hardware"
         RGBMatrix = _real_rgbmatrix.RGBMatrix  # type: ignore[attr-defined]
         RGBMatrixOptions = _real_rgbmatrix.RGBMatrixOptions  # type: ignore[attr-defined]
-        graphics = _real_rgbmatrix.graphics  # type: ignore[attr-defined]
+        graphics = importlib.import_module("rgbmatrix.graphics")
         logger.info("Using hardware rgbmatrix backend")
 
 if '_BACKEND_NAME' not in globals():
