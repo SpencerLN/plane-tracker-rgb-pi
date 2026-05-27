@@ -77,7 +77,7 @@ def main():
     # Start Flask server in background
     logger.info(f"Starting Flask web server from: {app_path}")
     flask_process = subprocess.Popen(
-        ["python3", app_path],
+        [sys.executable, app_path],
     )
     logger.info(f"Flask web server started with PID: {flask_process.pid}")
 
